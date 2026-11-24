@@ -1,0 +1,256 @@
+{
+  "name": "Objective Builder – AI + Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "objective-builder",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "a1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "objective-builder"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a senior instructional designer. Write learning content for this training:\n\nTopic: {{ $json.body.topic }}\nAudience: {{ $json.body.audience }}\nLevel: {{ $json.body.level }}\nOutput language: {{ $json.body.language }}\n\nRules:\n- Write exactly 4 measurable learning objectives, each starting with \"By the end of this training, learners will be able to\" (or its professional equivalent in the output language) followed by one observable action verb.\n- The 4 objectives must climb Bloom's taxonomy from lower to higher levels, matched to the learner level.\n- Write exactly 3 multiple-choice questions with 4 options each that check the objectives. Only one option is correct.\n- Use clear, professional training language. No idioms.\n- Write every text value in the output language. Keep JSON keys and the \"bloom\" values in English.\n\nReturn ONLY valid JSON, with no markdown and no extra text, in exactly this shape:\n{\n  \"title\": \"short course title\",\n  \"summary\": \"one sentence describing the training\",\n  \"objectives\": [ { \"text\": \"...\", \"bloom\": \"Remember|Understand|Apply|Analyze|Evaluate|Create\" } ],\n  \"quiz\": [ { \"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"], \"answer\": 0, \"explanation\": \"one sentence\" } ]\n}\n\"answer\" is the zero-based index of the correct option.",
+        "hasOutputParser": false
+      },
+      "id": "a2",
+      "name": "AI Content Generator",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "a3",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        260,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Clean and validate the AI response, then shape the data for the website.\nconst raw = String($input.first().json.text || '');\nconst req = $('Webhook').first().json.body || {};\n\nlet cleaned = raw.replace(/```json|```/g, '').trim();\nconst start = cleaned.indexOf('{');\nconst end = cleaned.lastIndexOf('}');\nif (start === -1 || end === -1) throw new Error('AI response did not contain JSON');\ncleaned = cleaned.slice(start, end + 1);\n\nlet data;\ntry {\n  data = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error('AI response was not valid JSON');\n}\n\nconst objectives = Array.isArray(data.objectives) ? data.objectives.slice(0, 6) : [];\nconst quiz = (Array.isArray(data.quiz) ? data.quiz : [])\n  .filter(q => q && Array.isArray(q.options) && q.options.length >= 2)\n  .slice(0, 5);\n\nreturn [{\n  json: {\n    topic: String(req.topic || '').slice(0, 120),\n    audience: String(req.audience || '').slice(0, 120),\n    level: req.level || 'Intermediate',\n    language: req.language || 'English',\n    title: data.title || req.topic,\n    summary: data.summary || '',\n    objectives,\n    quiz,\n    createdAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a4",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.createdAt }}",
+            "Topic": "={{ $json.topic }}",
+            "Audience": "={{ $json.audience }}",
+            "Level": "={{ $json.level }}",
+            "Language": "={{ $json.language }}",
+            "Title": "={{ $json.title }}",
+            "Objectives": "={{ $json.objectives.map((o, i) => (i + 1) + '. ' + o.text + ' [' + o.bloom + ']').join('\\n') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Topic",
+              "displayName": "Topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Audience",
+              "displayName": "Audience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Level",
+              "displayName": "Level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Language",
+              "displayName": "Language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Objectives",
+              "displayName": "Objectives",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a5",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify(Object.assign({}, $('Parse AI Output').first().json, { saved: !$json.error })) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a6",
+      "name": "Respond to Website",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Content Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Content Generator",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Content Generator": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Respond to Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
